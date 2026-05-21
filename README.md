@@ -2,6 +2,8 @@
 
 Simple Flask app for browsing bands from `discovered_bands.md`, marking listened bands, and saving that state locally.
 
+![Band Explorer UI](static/app_preview.png)
+
 ## Features
 
 - Loads bands grouped by country from markdown headings and table rows.
