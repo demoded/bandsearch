@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Band Explorer – Mark Listened Bands</title>
+  <meta name="description" content="Browse discovered female-fronted pop-rock bands from around the world and mark the ones you know.">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ── Sticky header ──────────────────────────────────── -->
+<header class="app-header">
+  <div class="header-inner">
+    <div class="header-title">🎸 Band Explorer</div>
+    <div class="header-stats">
+      <span class="stat-badge" id="globalStats">0 / 0 listened</span>
+    </div>
+  </div>
+</header>
+
+<!-- ── Search ─────────────────────────────────────────── -->
+<div class="search-bar-wrap">
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input type="text"
+           class="search-bar"
+           id="searchInput"
+           placeholder="Search bands or countries…"
+           autocomplete="off">
+  </div>
+</div>
+
+<!-- ── Main content ───────────────────────────────────── -->
+<main class="main-content" id="bandList">
+  <form id="bandForm">
+    {% for country, bands in bands_by_country.items() %}
+      <section class="country-section" data-country="{{ country|lower }}">
+        <div class="country-header">
+          <h2 class="country-name">{{ country }}</h2>
+          <div class="country-progress">
+            <div class="progress-bar-wrap">
+              <div class="progress-bar-fill" style="width: 0%"></div>
+            </div>
+            <span class="progress-text">0/{{ bands|length }}</span>
+          </div>
+        </div>
+        <ul class="band-list">
+          {% for band in bands %}
+            <li class="band-item{% if state.get(band) %} checked{% endif %}"
+                id="item-{{ loop.index0 }}-{{ country|replace(' ', '_') }}">
+              <input type="checkbox"
+                     name="band"
+                     value="{{ band|e }}"
+                     id="chk-{{ band|replace(' ', '_')|replace("'", '')|replace('&', '_') }}"
+                     {% if state.get(band) %}checked{% endif %}>
+              <div class="custom-check">
+                <svg viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M2 6.5L4.5 9L10 3" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <span class="band-name">{{ band }}</span>
+              <span class="listened-tag">Listened</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endfor %}
+  </form>
+
+  <div class="no-results" id="noResults" style="display: none;">
+    <span>🔎</span>
+    No bands match your search.
+  </div>
+</main>
+
+<!-- ── Save FAB ───────────────────────────────────────── -->
+<button class="save-fab" id="saveBtn">💾 Save selections</button>
+<div class="toast-msg" id="toastMsg">Selections saved! 🎉</div>
+
+<script>
+(function() {
+  /* ── DOM refs ─────────────────────────────────────── */
+  const form        = document.getElementById('bandForm');
+  const saveBtn     = document.getElementById('saveBtn');
+  const toastMsg    = document.getElementById('toastMsg');
+  const searchInput = document.getElementById('searchInput');
+  const noResults   = document.getElementById('noResults');
+  const globalStats = document.getElementById('globalStats');
+
+  /* ── Toggle band item on click ────────────────────── */
+  document.querySelectorAll('.band-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (e.target.tagName === 'A') return;           // allow links inside
+      const cb = item.querySelector('input[type="checkbox"]');
+      cb.checked = !cb.checked;
+      item.classList.toggle('checked', cb.checked);
+      updateProgress(item.closest('.country-section'));
+      updateGlobalStats();
+    });
+  });
+
+  /* ── Progress per country ─────────────────────────── */
+  function updateProgress(section) {
+    if (!section) return;
+    const total   = section.querySelectorAll('.band-item').length;
+    const checked = section.querySelectorAll('.band-item.checked').length;
+    const fill    = section.querySelector('.progress-bar-fill');
+    const text    = section.querySelector('.progress-text');
+    fill.style.width = total ? (checked / total * 100) + '%' : '0%';
+    text.textContent  = checked + '/' + total;
+  }
+
+  /* ── Global stats ─────────────────────────────────── */
+  function updateGlobalStats() {
+    const total   = document.querySelectorAll('.band-item').length;
+    const checked = document.querySelectorAll('.band-item.checked').length;
+    globalStats.textContent = checked + ' / ' + total + ' listened';
+  }
+
+  /* ── Init progress bars ───────────────────────────── */
+  document.querySelectorAll('.country-section').forEach(updateProgress);
+  updateGlobalStats();
+
+  /* ── Live search / filter ─────────────────────────── */
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim().toLowerCase();
+    let anyVisible = false;
+
+    document.querySelectorAll('.country-section').forEach(section => {
+      const countryMatch = section.dataset.country.includes(q);
+      let sectionHasMatch = false;
+
+      section.querySelectorAll('.band-item').forEach(item => {
+        const name = item.querySelector('.band-name').textContent.toLowerCase();
+        const show = !q || countryMatch || name.includes(q);
+        item.style.display = show ? '' : 'none';
+        if (show) sectionHasMatch = true;
+      });
+
+      section.style.display = sectionHasMatch ? '' : 'none';
+      if (sectionHasMatch) anyVisible = true;
+    });
+
+    noResults.style.display = anyVisible ? 'none' : '';
+  });
+
+  /* ── Save ──────────────────────────────────────────── */
+  saveBtn.addEventListener('click', () => {
+    const listened = {};
+    document.querySelectorAll('input[type="checkbox"][name="band"]').forEach(cb => {
+      listened[cb.value] = cb.checked;
+    });
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = '⏳ Saving…';
+
+    fetch('/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ listened })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'ok') {
+          saveBtn.classList.add('saved');
+          saveBtn.textContent = '✅ Saved!';
+          toastMsg.classList.add('show');
+          setTimeout(() => {
+            toastMsg.classList.remove('show');
+            saveBtn.classList.remove('saved');
+            saveBtn.textContent = '💾 Save selections';
+            saveBtn.disabled = false;
+          }, 2000);
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        saveBtn.textContent = '❌ Error – retry';
+        saveBtn.disabled = false;
+      });
+  });
+
+  /* ── Keyboard shortcut: Ctrl/Cmd+S to save ────────── */
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveBtn.click();
+    }
+  });
+})();
+</script>
+</body>
+</html>
